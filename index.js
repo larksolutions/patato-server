@@ -1,7 +1,9 @@
 const express = require("express");
 const cors = require("cors");
+const http = require("http");
 const dotenv = require("dotenv");
 const { ExpressPeerServer } = require("peer");
+const { Server } = require("socket.io");
 const connectDB = require("./config/db");
 
 // Load environment variables
@@ -9,12 +11,13 @@ const envFile = process.env.NODE_ENV === "production" ? ".env.production" : ".en
 dotenv.config({ path: envFile });
 
 const app = express();
+const clientUrl = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "");
 
 // Connect to MongoDB
 connectDB();
 
 // Middleware
-app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
+app.use(cors({ origin: clientUrl }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -45,4 +48,26 @@ peerServer.on("connection", (client) => {
 });
 peerServer.on("disconnect", (client) => {
   console.log(`Peer disconnected: ${client.getId()}`);
+});
+
+// Socket.IO for realtime chat
+const io = new Server(server, {
+  cors: { origin: clientUrl, methods: ["GET", "POST"] },
+});
+
+io.on("connection", (socket) => {
+  console.log(`Socket connected: ${socket.id}`);
+
+  socket.on("join-room", (roomId) => {
+    socket.join(roomId);
+    console.log(`Socket ${socket.id} joined room ${roomId}`);
+  });
+
+  socket.on("send-message", ({ roomId, message, sender, timestamp }) => {
+    io.to(roomId).emit("receive-message", { message, sender, timestamp });
+  });
+
+  socket.on("disconnect", () => {
+    console.log(`Socket disconnected: ${socket.id}`);
+  });
 });
