@@ -12,6 +12,30 @@ dotenv.config({ path: envFile });
 
 const app = express();
 const clientUrl = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "");
+const server = http.createServer(app);
+
+// Socket.IO for realtime chat (attach before PeerJS to handle WS upgrades)
+const io = new Server(server, {
+  cors: { origin: clientUrl, methods: ["GET", "POST"] },
+  transports: ["websocket", "polling"],
+});
+
+io.on("connection", (socket) => {
+  console.log(`Socket connected: ${socket.id}`);
+
+  socket.on("join-room", (roomId) => {
+    socket.join(roomId);
+    console.log(`Socket ${socket.id} joined room ${roomId}`);
+  });
+
+  socket.on("send-message", ({ roomId, message, sender, timestamp }) => {
+    io.to(roomId).emit("receive-message", { message, sender, timestamp });
+  });
+
+  socket.on("disconnect", () => {
+    console.log(`Socket disconnected: ${socket.id}`);
+  });
+});
 
 // Connect to MongoDB
 connectDB();
@@ -30,12 +54,6 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", environment: process.env.NODE_ENV || "development" });
 });
 
-const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT} [${process.env.NODE_ENV || "development"}]`);
-  console.log(`PeerJS server available at /peerjs/myapp`);
-});
-
 // PeerJS Server — mounted at /peerjs (per docs: https://peerjs.com/server/getting-started)
 const peerServer = ExpressPeerServer(server, {
   path: "/myapp",
@@ -50,24 +68,9 @@ peerServer.on("disconnect", (client) => {
   console.log(`Peer disconnected: ${client.getId()}`);
 });
 
-// Socket.IO for realtime chat
-const io = new Server(server, {
-  cors: { origin: clientUrl, methods: ["GET", "POST"] },
-});
-
-io.on("connection", (socket) => {
-  console.log(`Socket connected: ${socket.id}`);
-
-  socket.on("join-room", (roomId) => {
-    socket.join(roomId);
-    console.log(`Socket ${socket.id} joined room ${roomId}`);
-  });
-
-  socket.on("send-message", ({ roomId, message, sender, timestamp }) => {
-    io.to(roomId).emit("receive-message", { message, sender, timestamp });
-  });
-
-  socket.on("disconnect", () => {
-    console.log(`Socket disconnected: ${socket.id}`);
-  });
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} [${process.env.NODE_ENV || "development"}]`);
+  console.log(`PeerJS server available at /peerjs/myapp`);
+  console.log(`Socket.IO ready`);
 });
